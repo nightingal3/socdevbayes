@@ -1,0 +1,84 @@
+---
+title: "Bayesian Analyses for Social Development"
+author: "Rebekah Gelpi"
+date: "12/09/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+p_load(tidyverse, BayesFactor, magrittr, palmerpenguins, ggdist)
+```
+
+## Introduction to data
+
+This introduction to Bayesian hypothesis testing uses the `BayesFactor` package in R as well as the dataset from the package `palmerpenguins`. First, the data will be loaded into R.
+
+```{r penguins}
+data(penguins)
+summary(penguins)
+```
+
+## Visualizations
+
+The presentation covered two basic hypotheses: one that bill length varied by sex and one that it varied by species and sex. Using `ggplot2`, this data can be represented visually. First, the data by sex alone:
+```{r h1}
+penguins %>% drop_na() %>% ggplot(aes(x = sex, y = bill_length_mm, colour = sex, fill = sex)) +
+  geom_jitter(position = position_jitterdodge(
+    jitter.width = 0.05, 
+    jitter.height = 0.05, 
+    dodge.width = 0.9)) +
+  geom_violin(alpha = 0.3)
+```
+
+Next, the data by sex and species:
+
+```{r h2}
+penguins %>% drop_na() %>% ggplot(aes(x = species, y = bill_length_mm, colour = sex, fill = sex)) +
+  geom_jitter(position = position_jitterdodge(
+    jitter.width = 0.05, 
+    jitter.height = 0.05, 
+    dodge.width = 0.9)) +
+  geom_violin(alpha = 0.3)
+```
+
+## Bayes factor
+
+We can visually identify a difference in both cases, but to be sure, this requires some statistical analyses. First, a Bayesian independent sample t-test using the default JZS priors included in `BayesFactor`.
+
+```{r bayes1, warning=FALSE}
+bf = penguins %>% drop_na() %>% ttestBF(formula = bill_length_mm ~ sex, data = .)
+bf
+```
+
+The Bayesian t-test provides strong evidence for the alternative (BF = 73446825). This can also be done with multiple comparisons (such as for species and sex), although this requires using a Bayesian ANOVA:
+
+```{r bayes2, warning=FALSE}
+bf2 = penguins %>% drop_na() %>% anovaBF(formula = bill_length_mm ~ sex + species + sex:species, data = .)
+bf2/max(bf2)
+```
+
+Using `max(bf2)` to compare against the best model, this finds that the `species + sex` model without the interaction effect is highly credible relative to a species-only or sex-only model. The data favours the no-interaction model relative to the interaction model, BF = 0.4, but this value is inconclusive and serves as only anecdotal evidence in favour of the no-interaction model.
+
+## Posterior estimation
+
+Next, parameter estimates can be calculated using the `posterior` function. This draws 10,000 samples using a Markov chain Monte Carlo (MCMC) algorithm to approximate the posterior distribution.
+
+```{r bayes3, warning=FALSE}
+chains = posterior(model = bf, iterations = 10000, progress=FALSE)
+summary(chains)
+```
+
+Note: these numbers don't necessary line up perfectly against those shown in the presentation because every MCMC chain is unique. In the limit, however, as more samples are drawn, the numbers generated should converge closer and closer together.
+
+The credible interval for the difference measured here, `beta`, is represented as one of the matrices in the `chains` object. A visualization of the quantiles represented here can be drawn by simply plotting the object:
+
+```{r bayes4, warning=FALSE}
+ggplot(data.frame(data = chains[,2]), aes(x = c(1:10000), y = var1)) + geom_line() + ylab("Estimated difference in bill length") + xlab("Iteration") +ggtitle("MCMC trace of sex difference in bill length")
+ggplot(data.frame(data = chains[,2]), aes(x = var1)) + geom_dotsinterval(interval_size_domain = c(-5,-2.4)) + xlab("Estimated effect") + ylab("Density")
+```
+
+The "trace" here is the MCMC's state over all 10,000 iterations of the model. Most of its probability mass is placed between the 95% credible interval of the effect of sex, which is here between around -4.7 and -2.5 (may vary slightly in varying runs of the model). The density plot represents the frequency with which varying state transitions appeared, with the greatest density and thus credibility at the 50% quantile, a value of roughly -3.68.
+
+
